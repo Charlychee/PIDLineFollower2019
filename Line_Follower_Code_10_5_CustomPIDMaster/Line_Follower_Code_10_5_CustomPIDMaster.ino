@@ -33,7 +33,7 @@
 #include <CircularBuffer.h> //Libaray to create a FIFO buffer ASK
 #include <PrintEx.h>
 
-PrintEx newSerial = Serial;
+PrintEx newSerial = Serial1;
 CircularBuffer<int, 10> kiBuffer; //Create buffer for error sum
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
@@ -80,7 +80,7 @@ float kP, kI, kD;
 float absSumError = 0; //Adds up absolute value of error for speed adjustment ASK
 float kSR = 40; //Speed reduction constant for slowing down while correcting for error.  Especially useful for handling sharp turns ASK
 int SR; //Calculated speed reduction ASK
-unsigned long runTime, pidRunTime, calcRunTime, telementaryTime, telementaryTimeToPrint, fullRunTime, fullRunTimeToPrint;
+unsigned long runTime, pidRunTime, calcRunTime, telementaryTime, telementaryTimeToPrint, fullRunTime, fullRunTimeToPrint, limitTelementary;
 
 // ************************************************************************************************* //
 // setup - runs once
@@ -89,12 +89,14 @@ void setup()
 {
 
   Serial.begin(115200);        // For serial communication set up
+  Serial1.begin(115200);
   AFMS.begin();              // For motor setup
   pinMode(led_Pin, OUTPUT);  // Note that all analog pins used are INPUTs by default so don't need pinMode
 
   Calibrate();
   ReadPotentiometers();
   RunMotors();
+  limitTelementary = millis();
 
 }  // end setup()
 
@@ -405,5 +407,9 @@ void Print()
 
 void Telementary()
 {
+  if (millis() - limitTelementary > 75)
+  {
   newSerial.printf("DATA,%d,%1.4f,%1.4f,%1.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%1.4f,%d,%d,%1.4f,%1.4f,%lu,%lu,%lu,%lu,%lu,%lu\n", SpRead, kP, kI, kD, LDR[0], LDR[1], LDR[2], LDR[3], LDR[4], LDR[5], LDR[6], MxRead, MxIndex, error, M1SpeedtoMotor, M2SpeedtoMotor, absSumError, sumerror, runTime, pidRunTime, calcRunTime, telementaryTimeToPrint, fullRunTimeToPrint,micros());
+  limitTelementary = millis();
+  }
 }
