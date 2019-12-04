@@ -21,19 +21,28 @@
 
 // ************************************************************************************************* //
 #define _DEBUG_
+#define _WIFI_
+
 #define PSCALAR 2 //To scale effect of P ASK
 // Declare Variables
-
+#define LEFT 0
+#define RIGHT 1
 
 // Variables and Libaries for Motor (This part is from Motor_Driver_Code 10_3)
 #include <Wire.h>
-#include <Adafruit_MotorShield.h>
 
 //Library from https://github.com/rlogiacco/CircularBuffer
 #include <CircularBuffer.h> //Libaray to create a FIFO buffer ASK
-#include <PrintEx.h>
+//Library from https://github.com/Chris--A/PrintEx
+#include <PrintEx.h> //Libaray for printf function ASK
+#include <Adafruit_MotorShield.h>
 
+#ifdef _WIFI_
 PrintEx newSerial = Serial1;
+#else
+PrintEx newSerial = Serial;
+#endif
+
 CircularBuffer<int, 10> kiBuffer; //Create buffer for error sum
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
@@ -82,6 +91,7 @@ float kSR = 40; //Speed reduction constant for slowing down while correcting for
 int SR; //Calculated speed reduction ASK
 unsigned long runTime, pidRunTime, calcRunTime, telementaryTime, telementaryTimeToPrint, fullRunTime, fullRunTimeToPrint, limitTelementary;
 
+int lineLost = 0, firstLineLoss = 0, directionOfAttemptedTurn, initializePID = 0;
 // ************************************************************************************************* //
 // setup - runs once
 // Look at the lab to know what functions to call in which order in setup and loop
@@ -89,7 +99,11 @@ void setup()
 {
 
   Serial.begin(115200);        // For serial communication set up
+
+#ifdef _WIFI_                //Only compile for serial1 if using wifi telementary system
   Serial1.begin(115200);
+#endif
+
   AFMS.begin();              // For motor setup
   pinMode(led_Pin, OUTPUT);  // Note that all analog pins used are INPUTs by default so don't need pinMode
 
@@ -109,14 +123,33 @@ void loop()
   ReadPotentiometers();
   ReadPhotoResistors();
   CalcError();
-  PID_Turn();
-  RunMotors();
-  runTime = micros()-runTime;
+  if (!lineLost)
+  {
+    digitalWrite(led_Pin, HIGH);
+    PID_Turn();
+    RunMotors();
+  } else
+  {
+    if (firstLineLoss)
+    {
+      if (lasterror < 0)
+      {
+        directionOfAttemptedTurn = RIGHT;
+      } else
+      {
+        directionOfAttemptedTurn = LEFT;
+      }
+      firstLineLoss = 0;
+    }
+    digitalWrite(led_Pin, LOW);
+    openLoopTurn(directionOfAttemptedTurn);
+  }
+  runTime = micros() - runTime;
   telementaryTime = micros();
   Telementary();
   telementaryTimeToPrint = micros() - telementaryTime;
   fullRunTimeToPrint = micros() - fullRunTime;
-  
+
 #ifdef _DEBUG_
   //Print();
 #endif
@@ -293,37 +326,73 @@ void CalcError()
 
   // Step 2)  Calculate error from weighted average, based off the readings around the maximum value
   CriteriaForMax = 2;  // max should be at least twice as big as the other values
-  if (MxRead > CriteriaForMax * AveRead)  // only when the max is big enough
+  if (MxRead > 1.2 * AveRead && MxRead > 25 && AveRead < 75)  // only when the max is big enough
   {
-    if (im1 != 0 && im1 != 6)  // max not on either ends
+    calculateErrorValues();
+    if (lineLost == 1) //Just reacquired line, fix PID values
     {
-      im0 = im1 - 1;  // index for left
-      im2 = im1 + 1;  // index for right
-      if (LDR[im0] + LDR[im1] + LDR[im2] == 0)  // if the denominator calculates to 0, jump out and do not update error
-        return;
-      WeightedAve = ((float)(LDR[im0] * im0 + LDR[im1] * im1 + LDR[im2] * im2)) / ((float)(LDR[im0] + LDR[im1] + LDR[im2]));
-      error = -1 * (WeightedAve - 3);
+      initializePID = 1;
     }
-    else if (im1 == 0)  // max on left end
-    {
-      im2 = im1 + 1;
-      if (LDR[im1] + LDR[im2] == 0)  // if the denominator calculates to 0, jump out and do not update error
-        return;
-      WeightedAve = ((float)(LDR[im1] * im1 + LDR[im2] * im2)) / ((float)(LDR[im1] + LDR[im2]));
-      error = -1 * (WeightedAve - 3);
-    }
-    else if (im1 == 6)  // max on right end
-    {
-      im0 = im1 - 1;
-      if (LDR[im0] + LDR[im1] == 0)  // if the denominator calculates to 0, jump out and do not update error
-        return;
-      WeightedAve = ((float)(LDR[im0] * im0 + LDR[im1] * im1)) / ((float)(LDR[im0] + LDR[im1]));
-      error = -1 * (WeightedAve - 3);
-    }
+    lineLost = 0;
+    firstLineLoss = 1;
+  } else
+  {
+    lineLost = 1;
   }
   calcRunTime = micros() - calcRunTime;
 }  // end CalcError()
 
+void calculateErrorValues()
+{
+  if (im1 != 0 && im1 != 6)  // max not on either ends
+  {
+    im0 = im1 - 1;  // index for left
+    im2 = im1 + 1;  // index for right
+    if (LDR[im0] + LDR[im1] + LDR[im2] == 0)  // if the denominator calculates to 0, jump out and do not update error
+      return;
+    WeightedAve = ((float)(LDR[im0] * im0 + LDR[im1] * im1 + LDR[im2] * im2)) / ((float)(LDR[im0] + LDR[im1] + LDR[im2]));
+    error = -1 * (WeightedAve - 3);
+  }
+  else if (im1 == 0)  // max on left end
+  {
+    im2 = im1 + 1;
+    if (LDR[im1] + LDR[im2] == 0)  // if the denominator calculates to 0, jump out and do not update error
+      return;
+    WeightedAve = ((float)(LDR[im1] * im1 + LDR[im2] * im2)) / ((float)(LDR[im1] + LDR[im2]));
+    error = -1 * (WeightedAve - 3);
+  }
+  else if (im1 == 6)  // max on right end
+  {
+    im0 = im1 - 1;
+    if (LDR[im0] + LDR[im1] == 0)  // if the denominator calculates to 0, jump out and do not update error
+      return;
+    WeightedAve = ((float)(LDR[im0] * im0 + LDR[im1] * im1)) / ((float)(LDR[im0] + LDR[im1]));
+    error = -1 * (WeightedAve - 3);
+  }
+}
+
+void openLoopTurn(int turnDir)
+{
+  if (turnDir == LEFT)
+  {
+    M1SpeedtoMotor = 120;
+    M2SpeedtoMotor = 150;
+    Motor1->setSpeed(M1SpeedtoMotor);
+    Motor2->setSpeed(M2SpeedtoMotor);
+    Motor1->run(FORWARD);
+    Motor2->run(BACKWARD);
+    M2SpeedtoMotor *= -1;
+  } else
+  {
+    M1SpeedtoMotor = 150;
+    M2SpeedtoMotor = 120;
+    Motor1->setSpeed(M1SpeedtoMotor);
+    Motor2->setSpeed(M2SpeedtoMotor);
+    Motor1->run(BACKWARD);
+    Motor2->run(FORWARD);
+    M1SpeedtoMotor *= -1;
+  }
+}
 
 // ************************************************************************************************* //
 // function to make a turn ( a basic P controller)
@@ -332,15 +401,28 @@ void PID_Turn()
   pidRunTime = micros();
   float poppedKiVal = 0;
   // *Read values are between 0 and 100, scale to become PID Constants
-  kP = (float)kPRead / 1.;    // each of these scaling factors can change depending on how influential you want them to be
+  kP = (float)kPRead / 1.;    // each of these scaling factors can change depending on how influent77ial you want them to be
   kI = (float)kIRead / 1000.; // the potentiometers will also scale them
   kD = (float)kDRead / 100.;
   // error holds values from -3 to 3
 
   //kP *= PSCALAR; //Added to scale effect of kP ASK
 
-  Turn = error * kP + sumerror * kI + (error - lasterror) * kD; //PID!!!!!
-
+  if (initializePID)
+  {
+    lasterror = error;
+    if (Turn > 5) {
+      Turn = 5; // prevents integrator wind-up
+    }
+    else if (Turn < -5) {
+      Turn = -5;
+    }
+    Turn = error * kP + Turn + (error - lasterror) * kD;
+    initializePID = 0;
+  } else
+  {
+    Turn = error * kP + sumerror * kI + (error - lasterror) * kD; //PID!!!!!
+  }
   //Old method of integral error ASK
   //sumerror = sumerror + error;
 
@@ -409,7 +491,7 @@ void Telementary()
 {
   if (millis() - limitTelementary > 75)
   {
-  newSerial.printf("DATA,%d,%1.4f,%1.4f,%1.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%1.4f,%d,%d,%1.4f,%1.4f,%lu,%lu,%lu,%lu,%lu,%lu\n", SpRead, kP, kI, kD, LDR[0], LDR[1], LDR[2], LDR[3], LDR[4], LDR[5], LDR[6], MxRead, MxIndex, error, M1SpeedtoMotor, M2SpeedtoMotor, absSumError, sumerror, runTime, pidRunTime, calcRunTime, telementaryTimeToPrint, fullRunTimeToPrint,micros());
-  limitTelementary = millis();
+    newSerial.printf("DATA,%d,%1.4f,%1.4f,%1.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%1.4f,%d,%d,%1.4f,%1.4f,%lu,%lu,%lu,%lu,%lu,%lu,%d\n", SpRead, kP, kI, kD, LDR[0], LDR[1], LDR[2], LDR[3], LDR[4], LDR[5], LDR[6], MxRead, MxIndex, error, M1SpeedtoMotor, M2SpeedtoMotor, absSumError, sumerror, runTime, pidRunTime, calcRunTime, telementaryTimeToPrint, fullRunTimeToPrint, micros(), lineLost);
+    limitTelementary = millis();
   }
 }
