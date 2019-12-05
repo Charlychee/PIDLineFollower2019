@@ -22,6 +22,8 @@
 // ************************************************************************************************* //
 #define _DEBUG_
 #define PSCALAR 2 //To scale effect of P ASK
+#define _WIFI_
+
 // Declare Variables
 
 
@@ -33,7 +35,12 @@
 #include <CircularBuffer.h> //Libaray to create a FIFO buffer ASK
 #include <PrintEx.h>
 
+#ifdef _WIFI_
 PrintEx newSerial = Serial1;
+#else
+PrintEx newSerial = Serial;
+#endif
+
 CircularBuffer<int, 10> kiBuffer; //Create buffer for error sum
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
@@ -89,7 +96,11 @@ void setup()
 {
 
   Serial.begin(115200);        // For serial communication set up
+  
+  #ifdef _WIFI_                //Only include if using WiFi
   Serial1.begin(115200);
+  #endif 
+  
   AFMS.begin();              // For motor setup
   pinMode(led_Pin, OUTPUT);  // Note that all analog pins used are INPUTs by default so don't need pinMode
 
@@ -409,7 +420,7 @@ void Telementary()
 {
   if (millis() - limitTelementary > 75)
   {
-  newSerial.printf("DATA,%d,%1.4f,%1.4f,%1.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%1.4f,%d,%d,%1.4f,%1.4f,%lu,%lu,%lu,%lu,%lu,%lu\n", SpRead, kP, kI, kD, LDR[0], LDR[1], LDR[2], LDR[3], LDR[4], LDR[5], LDR[6], MxRead, MxIndex, error, M1SpeedtoMotor, M2SpeedtoMotor, absSumError, sumerror, runTime, pidRunTime, calcRunTime, telementaryTimeToPrint, fullRunTimeToPrint,micros());
+  newSerial.printf("DATA,%d,%1.4f,%1.4f,%1.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%1.4f,%d,%d,%1.4f,%1.4f,%lu,%lu,%lu,%lu,%lu,%lu,%d\n", SpRead, kP, kI, kD, LDR[0], LDR[1], LDR[2], LDR[3], LDR[4], LDR[5], LDR[6], MxRead, MxIndex, error, M1SpeedtoMotor, M2SpeedtoMotor, absSumError, sumerror, runTime, pidRunTime, calcRunTime, telementaryTimeToPrint, fullRunTimeToPrint,micros(),0); //Added a 0 to allow moniter to collect data ASK
   limitTelementary = millis();
   }
 }
