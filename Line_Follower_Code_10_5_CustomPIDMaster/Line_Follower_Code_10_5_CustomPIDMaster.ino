@@ -1,3 +1,4 @@
+/*#################################THIS BASELINE IS FOR SIMPLE LOOPS ONLY####################################################*/
 /* ************************************************************************************************* */
 // * UCSD ECE 5 Lab 4 Code: Line Following Robot with PID * //
 /* ************************************************************************************************* */
@@ -24,6 +25,7 @@
 #define PSCALAR 2 //To scale effect of P ASK
 // Declare Variables
 
+#define _WIFI_
 
 // Variables and Libaries for Motor (This part is from Motor_Driver_Code 10_3)
 #include <Wire.h>
@@ -33,7 +35,12 @@
 #include <CircularBuffer.h> //Libaray to create a FIFO buffer ASK
 #include <PrintEx.h>
 
-PrintEx newSerial = Serial1;
+#ifdef _WIFI_
+PrintEx newSerial = Serial1; //Use serial1 to talk to ESP32, otherwise use normal serial port
+#else
+PrintEx newSerial = Serial;
+#endif
+
 CircularBuffer<int, 10> kiBuffer; //Create buffer for error sum
 
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
@@ -82,6 +89,7 @@ float kSR = 40; //Speed reduction constant for slowing down while correcting for
 int SR; //Calculated speed reduction ASK
 unsigned long runTime, pidRunTime, calcRunTime, telementaryTime, telementaryTimeToPrint, fullRunTime, fullRunTimeToPrint, limitTelementary;
 
+int onLineCounter = 0;
 // ************************************************************************************************* //
 // setup - runs once
 // Look at the lab to know what functions to call in which order in setup and loop
@@ -89,7 +97,11 @@ void setup()
 {
 
   Serial.begin(115200);        // For serial communication set up
+
+#ifdef _WIFI_                //Only start if using WIFI telementary
   Serial1.begin(115200);
+#endif
+
   AFMS.begin();              // For motor setup
   pinMode(led_Pin, OUTPUT);  // Note that all analog pins used are INPUTs by default so don't need pinMode
 
@@ -109,14 +121,29 @@ void loop()
   ReadPotentiometers();
   ReadPhotoResistors();
   CalcError();
+  if (abs(error) < 2.5)
+  {
+    onLineCounter++;
+    if (onLineCounter > 40)
+    {
+      SpRead = Sp = 150;
+    } else
+    {
+      SpRead = Sp = 130;
+    }
+  } else
+  {
+    SpRead = Sp = 130;
+    onLineCounter = 0;
+  }
   PID_Turn();
   RunMotors();
-  runTime = micros()-runTime;
+  runTime = micros() - runTime;
   telementaryTime = micros();
   Telementary();
   telementaryTimeToPrint = micros() - telementaryTime;
   fullRunTimeToPrint = micros() - fullRunTime;
-  
+
 #ifdef _DEBUG_
   //Print();
 #endif
@@ -207,8 +234,9 @@ void Calibrate()
 // function to read and map values from potentiometers
 void ReadPotentiometers()
 {
-  SpRead = map(analogRead(S_pin), 0, 1023, 0, 150); Sp = SpRead;
-  kPRead = map(analogRead(P_pin), 0, 1023, 0, 30);
+  //SpRead = map(analogRead(S_pin), 0, 1023, 0, 150); Sp = SpRead;
+  //SpRead = Sp = 150;
+  kPRead = map(analogRead(P_pin), 0, 1023, 0, 40);
   kIRead = map(analogRead(I_pin), 0, 1023, 0, 5);
   kDRead = map(analogRead(D_pin), 0, 1023, 0, 10);
 }    // end ReadPotentiometers()
@@ -310,7 +338,7 @@ void CalcError()
       if (LDR[im1] + LDR[im2] == 0)  // if the denominator calculates to 0, jump out and do not update error
         return;
       WeightedAve = ((float)(LDR[im1] * im1 + LDR[im2] * im2)) / ((float)(LDR[im1] + LDR[im2]));
-      error = -1 * (WeightedAve - 3);
+      error = -1 * (WeightedAve - 3) * 1.2; //Increase p for when far off line ASK
     }
     else if (im1 == 6)  // max on right end
     {
@@ -318,7 +346,7 @@ void CalcError()
       if (LDR[im0] + LDR[im1] == 0)  // if the denominator calculates to 0, jump out and do not update error
         return;
       WeightedAve = ((float)(LDR[im0] * im0 + LDR[im1] * im1)) / ((float)(LDR[im0] + LDR[im1]));
-      error = -1 * (WeightedAve - 3);
+      error = -1 * (WeightedAve - 3) * 1.2; //Increase p for when far off line ASK
     }
   }
   calcRunTime = micros() - calcRunTime;
@@ -407,9 +435,9 @@ void Print()
 
 void Telementary()
 {
-  if (millis() - limitTelementary > 75)
+  if (millis() - limitTelementary > 75) //We have to rate limit to prevent overloading the serial buffer which causes data corruption and significant slowdown at runtime
   {
-  newSerial.printf("DATA,%d,%1.4f,%1.4f,%1.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%1.4f,%d,%d,%1.4f,%1.4f,%lu,%lu,%lu,%lu,%lu,%lu\n", SpRead, kP, kI, kD, LDR[0], LDR[1], LDR[2], LDR[3], LDR[4], LDR[5], LDR[6], MxRead, MxIndex, error, M1SpeedtoMotor, M2SpeedtoMotor, absSumError, sumerror, runTime, pidRunTime, calcRunTime, telementaryTimeToPrint, fullRunTimeToPrint,micros());
-  limitTelementary = millis();
+    newSerial.printf("DATA,%d,%1.4f,%1.4f,%1.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%1.4f,%d,%d,%1.4f,%1.4f,%lu,%lu,%lu,%lu,%lu,%lu,%d\n", SpRead, kP, kI, kD, LDR[0], LDR[1], LDR[2], LDR[3], LDR[4], LDR[5], LDR[6], MxRead, MxIndex, error, M1SpeedtoMotor, M2SpeedtoMotor, absSumError, sumerror, runTime, pidRunTime, calcRunTime, telementaryTimeToPrint, fullRunTimeToPrint, micros(), 0); //the constant 0 is to make the gui happy ASK
+    limitTelementary = millis();
   }
 }
