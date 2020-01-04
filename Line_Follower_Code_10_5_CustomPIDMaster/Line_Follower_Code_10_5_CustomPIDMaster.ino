@@ -1,3 +1,4 @@
+/*########################################################################FOR FREQUENCY SWEEP TRACKS ONLY#######################################################################*/
 /* ************************************************************************************************* */
 // * UCSD ECE 5 Lab 4 Code: Line Following Robot with PID * //
 /* ************************************************************************************************* */
@@ -241,7 +242,7 @@ void Calibrate()
 void ReadPotentiometers()
 {
   SpRead = map(analogRead(S_pin), 0, 1023, 0, 150); Sp = SpRead;
-  kPRead = map(analogRead(P_pin), 0, 1023, 0, 30);
+  kPRead = map(analogRead(P_pin), 0, 1023, 0, 45);
   kIRead = map(analogRead(I_pin), 0, 1023, 0, 5);
   kDRead = map(analogRead(D_pin), 0, 1023, 0, 10);
 }    // end ReadPotentiometers()
